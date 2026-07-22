@@ -17,12 +17,16 @@ async function registerUser(req, res) {
     return res.status(409).json({ message: "User already exists" });
   }
 
+  const avatar = `https://ui-avatars.com/api/?name=${username}&background=random&color=fff&size=256`;
+
   const user = await userModel.create({
     username,
     fullName,
+    avatar,
     email,
     password: hash,
     role,
+    isActivated: true,
   });
 
   const token = jwt.sign(
@@ -42,10 +46,9 @@ async function registerUser(req, res) {
 async function loginUser(req, res) {
   const { username, email, password } = req.body;
 
-  const user = await userModel
-    .findOne({
-      $or: [{ username }, { email }],
-    });
+  const user = await userModel.findOne({
+    $or: [{ username }, { email }],
+  });
 
   if (!user) {
     return res.status(401).json({ message: "Invalid credentials" });
