@@ -15,14 +15,18 @@ const userSchema = new mongoose.Schema(
     },
     isActivated: {
       type: Boolean,
-      required: true,
+      enum: [true, false],
+      default: true,
+    },
+    isEmailVerify: {
+      type: Boolean,
+      enum: [true, false],
+      default: false,
     },
   },
   { timestamps: true },
 );
 
 const userModel = mongoose.model("user", userSchema);
-
-
 
 module.exports = userModel;

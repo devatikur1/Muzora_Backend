@@ -31,8 +31,6 @@ async function createAlbum(req, res) {
 async function getAllAlbums(req, res) {
   const albums = await albumModel
     .find()
-    .skip(1)
-    .limit(20)
     .select("title avatar artist")
     .populate("artist", "username fullName email");
 

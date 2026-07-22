@@ -19,7 +19,7 @@ async function authCheckLogin(req, res, next) {
   }
 }
 
-//🔹 Check Is Login
+//🔹 Check Is Artist
 async function authCheckIsArtist(req, res, next) {
   if (!req.user || req.user.role !== "artist") {
     return res.status(409).json({ message: "You don't have access" });

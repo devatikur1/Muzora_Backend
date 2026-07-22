@@ -8,7 +8,12 @@ const upload = multer({ storage: multer.memoryStorage() });
 const router = express.Router();
 
 //🔹 Post Method
-router.post("/create", authMiddleware.authArtist, upload.single("avatar"), albumController.createAlbum);
+router.post(
+  "/create",
+  authMiddleware.authCheckIsArtist,
+  upload.single("avatar"),
+  albumController.createAlbum,
+);
 
 //🔹 Get Method
 router.get("/get", albumController.getAllAlbums);
