@@ -10,12 +10,16 @@ const router = express.Router();
 //🔹 Post Method
 router.post(
   "/upload",
-  authMiddleware.authArtist,
+  authMiddleware.authCheckLogin,
+  authMiddleware.authCheckIsArtist,
   upload.fields([
     { name: "uri", maxCount: 1 },
     { name: "avatar", maxCount: 1 },
   ]),
   musicController.uploadMusic,
 );
+
+//🔹 Get Method
+router.get("/", musicController.getAllMusics);
 
 module.exports = router;

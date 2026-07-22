@@ -1,7 +1,8 @@
 const albumModel = require("../models/album.model");
 const { uploadFile } = require("../services/storage.service");
+const { cleanObject, cleanArray } = require("../utils/cleanData");
 
-//🔹 Create Album Fn
+//🔹 Create album Fn
 async function createAlbum(req, res) {
   const { title, musicsIds } = req.body;
   const musicsIdsArr = Array.isArray(musicsIds) ? musicsIds : [musicsIds];
@@ -22,13 +23,50 @@ async function createAlbum(req, res) {
 
   res.status(201).json({
     message: "Album created successfully",
-    album: {
-      id: album._id,
-      title: album.title,
-      musics: album.musics,
-      artist: album.album,
+    album: cleanObject(album),
+  });
+}
+
+//🔹 Get all albums Fn
+async function getAllAlbums(req, res) {
+  const albums = await albumModel
+    .find()
+    .skip(1)
+    .limit(20)
+    .select("title avatar artist")
+    .populate("artist", "username fullName email");
+
+  const cleanedAlbums = albums.map((album) => {
+    const albumObj = album.toObject();
+    return {
+      ...cleanObject(albumObj),
+      artist: cleanObject(albumObj.artist),
+    };
+  });
+
+  res.status(200).json({
+    message: "Albums fetched successfully",
+    albums: cleanedAlbums,
+  });
+}
+
+//🔹 Get One albums bye Id Fn
+async function getAlbumsById(req, res) {
+  const albumId = req.params.albumId;
+
+  const album = await albumModel
+    .findById(albumId)
+    .populate("artist", "username fullName email");
+
+  res.status(200).json({
+    message: "Album fetched successfully",
+    albums: {
+      ...cleanObject(album),
+      artist: cleanObject(album.artist),
     },
   });
 }
 
-module.exports = { createAlbum };
+
+
+module.exports = { createAlbum, getAllAlbums, getAlbumsById };

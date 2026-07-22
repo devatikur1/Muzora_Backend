@@ -1,12 +1,12 @@
 const musicModel = require("../models/music.model");
 const { uploadFile } = require("../services/storage.service");
+const { cleanObject } = require("../utils/cleanData");
 
-//🔹 Upload Music Fn
+//🔹 Upload music Fn
 async function uploadMusic(req, res) {
   const { title } = req.body;
   const musicFile = req.files.uri[0];
   const avatarFile = req.files.avatar[0];
-  console.log(req.files);
 
   const audio = await uploadFile(
     musicFile.buffer.toString("base64"),
@@ -28,14 +28,25 @@ async function uploadMusic(req, res) {
 
   res.status(201).json({
     message: "Music upload successfully",
-    music: {
-      id: music._id,
-      uri: music.uri,
-      title: music.title,
-      avatar: music.avatar,
-      artist: music.artist,
-    },
+    music: cleanObject(music),
   });
 }
 
-module.exports = { uploadMusic };
+//🔹 Get all musics Fn
+async function getAllMusics(req, res) {
+  const musics = await musicModel
+    .find()
+    .populate("artist", "username fullName email");
+
+  const cleanedMusics = musics.map((music) => {
+    const musicObj = music.toObject();
+    return { ...cleanObject(musicObj), artist: cleanObject(musicObj.artist) };
+  });
+
+  res.status(200).json({
+    message: "Musics fetched successfully",
+    musics: cleanedMusics,
+  });
+}
+
+module.exports = { uploadMusic, getAllMusics };
