@@ -1,6 +1,6 @@
-const albumModel = require("../models/album.model");
-const { uploadFile } = require("../services/storage.service");
-const { cleanObject, cleanArray } = require("../utils/cleanData");
+const albumModel = require("../models/album.model.js");
+const { uploadFile } = require("../services/storage.service.js");
+const { cleanObject, cleanArray } = require("../utils/cleanData.js");
 
 //🔹 Create album Fn
 async function createAlbum(req, res) {
