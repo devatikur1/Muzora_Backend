@@ -16,12 +16,10 @@ app.use("/api/otp", otpRoutes);
 app.use("/api/music", musicRoutes);
 app.use("/api/music/album", albumRoutes);
 
-app.get("/:*", async (req, res) => {
-  res.status(500).json({
-    message: "Eror",
+app.use((req, res) => {
+  res.status(404).json({
+    message: `Route ${req.method} ${req.originalUrl} not found`,
   });
 });
-
-
 
 module.exports = app;

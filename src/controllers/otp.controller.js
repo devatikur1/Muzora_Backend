@@ -46,8 +46,8 @@ async function verifyOtp(req, res) {
       await userModel.findOneAndUpdate({ email }, { isEmailVerify: true });
     }
 
-    if (condition) {
-      
+    if (purpose === "login") {
+      await userModel.findOneAndUpdate({ email }, { isActivated: true });
     }
 
     res.status(200).json({ message: "OTP verified successfully" });
