@@ -1,10 +1,10 @@
 const express = require("express");
 const cookieParser = require("cookie-parser");
 const cors = require("cors");
-const authRoutes = require("./routes/auth.routes.js");
-const musicRoutes = require("./routes/music.routes.js");
-const albumRoutes = require("./routes/album.routes.js");
-const otpRoutes = require("./routes/otp.routes.js");
+const authRoutes = require("./routes/auth.routes");
+const musicRoutes = require("./routes/music.routes");
+const albumRoutes = require("./routes/album.routes");
+const otpRoutes = require("./routes/otp.routes");
 
 const app = express();
 app.use(cors());

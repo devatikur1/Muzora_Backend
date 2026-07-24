@@ -1,6 +1,6 @@
 require("dotenv").config();
 const app = require("./src/app");
-const contectDB = require("./src/db/db.js");
+const contectDB = require("./src/db/db");
 const port = process.env.PORT;
 
 contectDB();

@@ -1,6 +1,6 @@
 const express = require("express");
-const albumController = require("../controllers/album.controller.js");
-const authMiddleware = require("../middlewares/auth.middleware.js");
+const albumController = require("../controllers/album.controller");
+const authMiddleware = require("../middlewares/auth.middleware");
 const multer = require("multer");
 
 const upload = multer({ storage: multer.memoryStorage() });

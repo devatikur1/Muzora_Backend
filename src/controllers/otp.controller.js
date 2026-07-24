@@ -1,7 +1,7 @@
-const { sendOtpEmail } = require("../services/email.service.js");
-const generateOtp = require("../utils/generateOtp.js");
-const otpModel = require("../models/otp.model.js");
-const userModel = require("../models/user.model.js");
+const { sendOtpEmail } = require("../services/email.service");
+const generateOtp = require("../utils/generateOtp");
+const otpModel = require("../models/otp.model");
+const userModel = require("../models/user.model");
 
 //🔹 Send otp Fn
 async function sendOtp(req, res) {

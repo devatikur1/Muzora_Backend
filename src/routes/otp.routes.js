@@ -1,5 +1,5 @@
 const express = require("express");
-const otpController = require("../controllers/otp.controller.js");
+const otpController = require("../controllers/otp.controller");
 
 const router = express.Router();
 

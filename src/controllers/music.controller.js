@@ -1,6 +1,6 @@
-const musicModel = require("../models/music.model.js");
-const { uploadFile } = require("../services/storage.service.js");
-const { cleanObject } = require("../utils/cleanData.js");
+const musicModel = require("../models/music.model");
+const { uploadFile } = require("../services/storage.service");
+const { cleanObject } = require("../utils/cleanData");
 
 //🔹 Upload music Fn
 async function uploadMusic(req, res) {

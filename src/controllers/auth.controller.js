@@ -1,5 +1,5 @@
-const userModel = require("../models/user.model.js");
-const { cleanObject } = require("../utils/cleanData.js");
+const userModel = require("../models/user.model");
+const { cleanObject } = require("../utils/cleanData");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
