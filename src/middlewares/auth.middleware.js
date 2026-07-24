@@ -1,7 +1,7 @@
 const jwt = require("jsonwebtoken");
 
 //🔹 Check Is Login
-async function authCheckLogin(req, res, next) {
+async function protect(req, res, next) {
   const token = req.cookies.token;
 
   if (!token) {
@@ -28,4 +28,5 @@ async function authCheckIsArtist(req, res, next) {
   next();
 }
 
-module.exports = { authCheckLogin, authCheckIsArtist };
+
+module.exports = { protect, authCheckIsArtist };

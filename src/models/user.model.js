@@ -23,6 +23,15 @@ const userSchema = new mongoose.Schema(
       enum: [true, false],
       default: false,
     },
+    is2FAOn: {
+      type: Boolean,
+      enum: [true, false],
+      default: false,
+    },
+    refreshToken: {
+      type: String,
+      default: null,
+    },
   },
   { timestamps: true },
 );

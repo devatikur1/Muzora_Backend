@@ -4,100 +4,203 @@ const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
 //🔹 Register User Fn
-async function registerUser(req, res) {
-  const { username, fullName, email, password, role = "user" } = req.body;
+async function register(req, res) {
+  try {
+    const { username, fullName, email, password, role = "user" } = req.body;
 
-  const isUserAlreadyExists = await userModel.findOne({
-    $or: [{ username }, { email }],
-  });
+    if (!username || !fullName || !email || !password || !role) {
+      return res.status(400).json({ message: "All fields are required" });
+    }
 
-  const hash = await bcrypt.hash(password, 10);
+    if (password.length < 6) {
+      return res
+        .status(400)
+        .json({ message: "Password must be at least 6 characters" });
+    }
 
-  if (isUserAlreadyExists) {
-    return res.status(409).json({ message: "User already exists" });
+    const isUserAlreadyExists = await userModel.findOne({
+      $or: [{ username }, { email }],
+    });
+
+    if (isUserAlreadyExists) {
+      return res.status(409).json({ message: "User already exists" });
+    }
+
+    const hash = await bcrypt.hash(password, 10);
+    const avatar = `https://ui-avatars.com/api/?name=${username}&background=random&color=fff&size=256`;
+
+    const accessToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_ACCESS_SECRET,
+      { expiresIn: "15m" },
+    );
+
+    const refreshToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_REFRESH_SECRET,
+      { expiresIn: "15d" },
+    );
+
+    const user = await userModel.create({
+      username,
+      fullName,
+      avatar,
+      email,
+      password: hash,
+      role,
+      refreshToken,
+    });
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 24 * 60 * 60 * 1000,
+    });
+
+    res.status(201).json({
+      message: "User registered successfully",
+      user: cleanObject(user, ["password"]),
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong" });
   }
-
-  const avatar = `https://ui-avatars.com/api/?name=${username}&background=random&color=fff&size=256`;
-
-  const user = await userModel.create({
-    username,
-    fullName,
-    avatar,
-    email,
-    password: hash,
-    role,
-    isActivated: true,
-  });
-
-  const token = jwt.sign(
-    { id: user._id, role: user.role },
-    process.env.JWT_SECRET,
-  );
-
-  res.cookie("token", token);
-
-  res.status(201).json({
-    message: "User registered successfully",
-    user: cleanObject(user, ["password"]),
-  });
 }
 
-//🔹 Login User Fn
-async function loginUser(req, res) {
-  const { username, email, password } = req.body;
+//🔹 Log-in User Fn
+async function login(req, res) {
+  try {
+    const { username, email, password } = req.body;
 
-  const user = await userModel.findOne({
-    $or: [{ username }, { email }],
-  });
+    const user = await userModel.findOne({
+      $or: [{ username }, { email }],
+    });
 
-  if (!user) {
-    return res.status(401).json({ message: "Invalid credentials" });
+    if (!user) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const isPasswordValid = await bcrypt.compare(password, user.password);
+
+    if (!isPasswordValid) {
+      return res.status(401).json({ message: "Invalid credentials" });
+    }
+
+    const accessToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_ACCESS_SECRET,
+      { expiresIn: "15m" },
+    );
+
+    const refreshToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_REFRESH_SECRET,
+      { expiresIn: "15d" },
+    );
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.cookie("refreshToken", refreshToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 24 * 60 * 60 * 1000,
+    });
+
+    res.status(200).json({
+      message: "User logged in successfully",
+      user: cleanObject(user, ["password"]),
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong" });
   }
+}
 
-  const isPasswordValid = await bcrypt.compare(password, user.password);
+//🔹 Log-out User Fn
+async function logout(req, res) {
+  try {
+    const token = req.cookies.refreshToken;
 
-  if (!isPasswordValid) {
-    return res.status(401).json({ message: "Invalid credentials" });
+    if (token) {
+      const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+      await userModel.findByIdAndUpdate(decoded.id, { refreshToken: null });
+    }
+
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+
+    res.status(200).json({ message: "User logged out successfully" });
+  } catch (error) {
+    res.clearCookie("accessToken");
+    res.clearCookie("refreshToken");
+    res
+      .status(200)
+      .json({ message: "Something went wrong", error: error.message });
   }
+}
 
-  const token = jwt.sign(
-    { id: user._id, role: user.role },
-    process.env.JWT_SECRET,
-  );
+//🔹 Refresh Token Fn
+async function refreshToken(req, res) {
+  try {
+    const token = req.cookies.refreshToken;
+    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
 
-  res.cookie("token", token);
+    const user = await userModel.findById(decoded.id).select("role");
 
-  res.status(201).json({
-    message: "User logged in successfully",
-    user: cleanObject(user, ["password"]),
-  });
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    const newAccessToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.JWT_ACCESS_SECRET,
+      { expiresIn: "15m" },
+    );
+
+    res.cookie("accessToken", newAccessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: 15 * 60 * 1000,
+    });
+
+    res.status(200).json({ message: "Token refreshed successfully" });
+  } catch (error) {
+    return res
+      .status(401)
+      .json({ message: "Invalid or expired refresh token" });
+  }
 }
 
 //🔹 Get current user
-async function getCurrentUser(req, res) {
-  const user = await userModel.findById(req.user.id).select("-password");
+async function getMe(req, res) {
+  try {
+    const user = await userModel.findById(req.user.id).select("-password");
 
-  if (!user) {
-    return res.status(401).json({ message: "User not found" });
+    if (!user) {
+      return res.status(401).json({ message: "User not found" });
+    }
+
+    res.status(200).json({
+      message: "User fetched successfully",
+      user: cleanObject(user),
+    });
+  } catch (error) {
+    res.status(500).json({ message: "Something went wrong" });
   }
-
-  res.status(200).json({
-    message: "User fetched successfully",
-    user: cleanObject(user),
-  });
 }
-
-//🔹 Edit data of current user
-// async function editUserData(req, res) {
-//   const { username, fullName, avatar } = req.body;
-
-//   const updateData = {};
-//   if (username) updateData.username = username;
-//   if (fullName) updateData.fullName = fullName;
-//   if (avatar) updateData.avatar = avatar;
-
-//   const user = await userModel.findByIdAndUpdate({ _id: req.user.id }, {});
-// }
 
 //🔹 Change password
 async function changePassword(req, res) {
@@ -139,22 +242,11 @@ async function changePassword(req, res) {
   }
 }
 
-//🔹 Login User Fn
-async function logOutUser(req, res) {
-  res.clearCookie("token");
-  res.status(200).json({ message: "User logged out successfully" });
-}
-
-//🔹 Delete Account Fn
-async function deleteAccount(req, res) {
-  const { password };
-}
-
 module.exports = {
-  registerUser,
-  loginUser,
-  logOutUser,
-  getCurrentUser,
+  register,
+  login,
+  logout,
+  refreshToken,
+  getMe,
   changePassword,
-  deleteAccount,
 };

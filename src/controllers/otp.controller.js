@@ -4,7 +4,7 @@ const otpModel = require("../models/otp.model");
 const userModel = require("../models/user.model");
 
 //🔹 Send otp Fn
-async function sentOtp(req, res) {
+async function sendOtp(req, res) {
   try {
     const { email, purpose } = req.body;
 
@@ -43,7 +43,11 @@ async function verifyOtp(req, res) {
     await otpModel.deleteOne({ _id: oldOtp._id });
 
     if (purpose === "register") {
-      await userModel.findOneAndUpdate({ email }, { isActivated: true });
+      await userModel.findOneAndUpdate({ email }, { isEmailVerify: true });
+    }
+
+    if (condition) {
+      
     }
 
     res.status(200).json({ message: "OTP verified successfully" });
@@ -53,4 +57,4 @@ async function verifyOtp(req, res) {
   }
 }
 
-module.exports = { sentOtp, verifyOtp };
+module.exports = { sendOtp, verifyOtp };

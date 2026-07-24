@@ -1,23 +1,27 @@
 const express = require("express");
 const authController = require('../controllers/auth.controller');
-const authMiddleware = require("../middlewares/auth.middleware");
+const { protect } = require("../middlewares/auth.middleware");
 
 const router = express.Router();
 
-//🔹 Post Method
-router.post("/register", authController.registerUser);
-router.post("/login", authController.loginUser);
-router.post("/logout", authController.logOutUser);
 
-//🔹 Get Method
-router.get("/me", authMiddleware.authCheckLogin, authController.getCurrentUser);
+// Register - new user account
+router.post("/register", authController.register);
 
-// 🔹 Patch method
-router.patch("/edit", authMiddleware.authCheckLogin, authController.getCurrentUser);
-router.patch("/change-password", authMiddleware.authCheckLogin, authController.changePassword);
+// Login - login existing user
+router.post("/login", authController.login);
 
-// 🔹 Delete method
-router.delete("/delete", authMiddleware.authCheckLogin, authController.deleteAccount);
+// Logout - cookie clear
+router.post("/logout", authController.logout);
+
+// Refresh token
+router.post("/refresh-token", authController.refreshToken);
+
+// Current logged-in user info
+router.get("/me", protect, authController.getMe);
+
+// Password change (logged-in)
+router.put("/change-password", protect, authController.changePassword);
 
 
 

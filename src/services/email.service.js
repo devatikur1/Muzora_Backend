@@ -10,7 +10,7 @@ const transporter = nodemailer.createTransport({
 
 async function sendOtpEmail(to, otp) {
   await transporter.sendMail({
-    from: `Musify <${process.env.EMAIL_USER}>`,
+    from: `Muzora <${process.env.EMAIL_USER}>`,
     to,
     subject: "Email verification code",
     html: `
@@ -24,6 +24,5 @@ async function sendOtpEmail(to, otp) {
     `,
   });
 }
-
 
 module.exports = { sendOtpEmail };
