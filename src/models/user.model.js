@@ -6,27 +6,22 @@ const userSchema = new mongoose.Schema(
     fullName: { type: String, required: true },
     avatar: { type: String, required: true },
     email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    password: { type: String, required: true, select: false },
     role: {
       type: String,
       enum: ["user", "artist"],
       default: "user",
       required: true,
     },
-    isActivated: {
+    isVerified: {
       type: Boolean,
-      enum: [true, false],
-      default: true,
-    },
-    isEmailVerify: {
-      type: Boolean,
-      enum: [true, false],
-      default: false,
+
+      default: false
     },
     is2FAOn: {
       type: Boolean,
-      enum: [true, false],
-      default: false,
+
+      default: false
     },
     refreshToken: {
       type: String,

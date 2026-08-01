@@ -1,5 +1,6 @@
-const userModel = require("../models/user.model");
-const { cleanObject } = require("../utils/cleanData");
+const userModel = require("../models/user.model.js");
+const { cleanObject } = require("../utils/cleanData.js");
+const { sendOtpFn, finalizeOtpVerification } = require("../utils/otp.js");
 const jwt = require("jsonwebtoken");
 const bcrypt = require("bcryptjs");
 
@@ -8,8 +9,12 @@ async function register(req, res) {
   try {
     const { username, fullName, email, password, role = "user" } = req.body;
 
-    if (!username || !fullName || !email || !password || !role) {
-      return res.status(400).json({ message: "All fields are required" });
+    if (!username || !fullName || !email || !password) {
+      return res
+        .status(400)
+        .json({
+          message:"Please fill in all fields"
+        });
     }
 
     if (password.length < 6) {
@@ -17,29 +22,17 @@ async function register(req, res) {
         .status(400)
         .json({ message: "Password must be at least 6 characters" });
     }
-
     const isUserAlreadyExists = await userModel.findOne({
       $or: [{ username }, { email }],
     });
 
     if (isUserAlreadyExists) {
-      return res.status(409).json({ message: "User already exists" });
+      const field = isUserAlreadyExists.email === email ? "Email" : "Username";
+      return res.status(409).json({ message: `${field} already in use` });
     }
 
     const hash = await bcrypt.hash(password, 10);
     const avatar = `https://ui-avatars.com/api/?name=${username}&background=random&color=fff&size=256`;
-
-    const accessToken = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_ACCESS_SECRET,
-      { expiresIn: "15m" },
-    );
-
-    const refreshToken = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_REFRESH_SECRET,
-      { expiresIn: "15d" },
-    );
 
     const user = await userModel.create({
       username,
@@ -48,29 +41,16 @@ async function register(req, res) {
       email,
       password: hash,
       role,
-      refreshToken,
     });
+    console.log("User created:", user);
+    await sendOtpFn(cleanObject(user, ["password"]), "register", res);
 
-    res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 24 * 60 * 60 * 1000,
-    });
-
-    res.status(201).json({
-      message: "User registered successfully",
-      user: cleanObject(user, ["password"]),
+    return res.status(201).json({
+      message: "Registration successfully, OTP sent to email",
     });
   } catch (error) {
-    res.status(500).json({ message: "Something went wrong" });
+    console.log(error);
+    return res.status(500).json({ message: "Something went wrong" });
   }
 }
 
@@ -93,35 +73,9 @@ async function login(req, res) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    const accessToken = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_ACCESS_SECRET,
-      { expiresIn: "15m" },
-    );
-
-    const refreshToken = jwt.sign(
-      { id: user._id, role: user.role },
-      process.env.JWT_REFRESH_SECRET,
-      { expiresIn: "15d" },
-    );
-
-    res.cookie("accessToken", accessToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
-    });
-
-    res.cookie("refreshToken", refreshToken, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "strict",
-      maxAge: 15 * 24 * 60 * 60 * 1000,
-    });
-
-    res.status(200).json({
-      message: "User logged in successfully",
-      user: cleanObject(user, ["password"]),
+    await sendOtpFn(cleanObject(user), "login", res);
+    return res.status(200).json({
+      message: "OTP sent successfully, please verify to complete login",
     });
   } catch (error) {
     res.status(500).json({ message: "Something went wrong" });
@@ -187,7 +141,7 @@ async function refreshToken(req, res) {
 //🔹 Get current user
 async function getMe(req, res) {
   try {
-    const user = await userModel.findById(req.user.id).select("-password");
+    const user = await userModel.findById(req.user.id);
 
     if (!user) {
       return res.status(401).json({ message: "User not found" });
@@ -213,7 +167,7 @@ async function changePassword(req, res) {
         .json({ message: "Old and new password are required" });
     }
 
-    const user = await userModel.findById(req.user.id);
+    const user = await userModel.findById(req.user.id).select("+password");
     if (!user) {
       return res.status(404).json({ message: "User not found" });
     }
@@ -242,6 +196,65 @@ async function changePassword(req, res) {
   }
 }
 
+// 🔹 Verify OTP Fn
+async function verifyOtp(req, res) {
+  try {
+    const userSentOtp = req.body.otp;
+    const otpToken = req.cookies.otpToken;
+
+    if (!userSentOtp || !otpToken) {
+      return res.status(400).json({ message: "OTP and token are required" });
+    }
+
+    const decoded = jwt.verify(otpToken, process.env.OTP_TOKEN_SECRET);
+    if (!decoded) {
+      return res.status(400).json({ message: "Invalid or expired OTP token" });
+    }
+
+    if (decoded.otp !== userSentOtp) {
+      return res.status(400).json({ message: "Invalid OTP" });
+    }
+    await finalizeOtpVerification(decoded.data, decoded.purpose, res);
+
+    res.clearCookie("otpToken");
+    res.status(200).json({ message: "OTP verified successfully" });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({ message: "Something went wrong" });
+  }
+}
+
+// 🔹 Resend Otp FN
+async function resendOtp(req, res) {
+  try {
+    const otpToken = req.cookies.otpToken;
+
+    if (!otpToken) {
+      return res.status(400).json({ message: "OTP token is required" });
+    }
+
+    const decoded = jwt.verify(otpToken, process.env.OTP_TOKEN_SECRET, {
+      ignoreExpiration: true,
+    });
+
+    await sendOtpFn(
+      cleanObject(decoded.data, ["password"]),
+      decoded.purpose,
+      res,
+    );
+
+    return res.status(200).json({
+      status: 200,
+      message: "OTP sent successfully",
+    });
+  } catch (error) {
+    console.log(error);
+    return res.status(500).json({
+      message: "Otp sending failed, please try again",
+    });
+  }
+}
+
 module.exports = {
   register,
   login,
@@ -249,4 +262,6 @@ module.exports = {
   refreshToken,
   getMe,
   changePassword,
+  verifyOtp,
+  resendOtp,
 };

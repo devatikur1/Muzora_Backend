@@ -1,6 +1,6 @@
 const express = require("express");
-const authController = require('../controllers/auth.controller');
-const { protect } = require("../middlewares/auth.middleware");
+const authController = require('../controllers/auth.controller.js');
+const { protect } = require("../middlewares/auth.middleware.js");
 
 const router = express.Router();
 
@@ -22,6 +22,12 @@ router.get("/me", protect, authController.getMe);
 
 // Password change (logged-in)
 router.put("/change-password", protect, authController.changePassword);
+
+// Verify OTP - after registration
+router.post("/verify-otp", authController.verifyOtp);
+
+// Resend OTP - if user didn't receive the OTP
+router.post("/resend-otp", authController.resendOtp);
 
 
 

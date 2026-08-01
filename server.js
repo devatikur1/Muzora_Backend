@@ -1,8 +1,10 @@
 require("dotenv").config();
-const app = require("./src/app");
-const contectDB = require("./src/db/db");
+const dns = require("dns");
+const app = require("./src/app.js");
+const connectDB = require("./src/db/db.js");
 const port = process.env.PORT;
 
-contectDB();
+dns.setServers(["8.8.8.8", "8.8.4.4"]);
+connectDB();
 
-app.listen(port, () => console.log(`Server is running on port ${port}`));
+app.listen(port, () => console.log(`Server is running on port ${port} website link http://localhost:${port}`));
