@@ -1,21 +1,20 @@
 const jwt = require("jsonwebtoken");
+const { sendError } = require("../utils/sendError");
 
 //🔹 Check Is Login
 async function protect(req, res, next) {
-  const token = req.cookies.token;
+  const token = req.cookies.accessToken;
 
   if (!token) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return sendError(res, "auth/unauthorized");
   }
 
   try {
-    const decoded = await jwt.verify(token, process.env.JWT_SECRET);
-
+    const decoded = jwt.verify(token, process.env.ACCESS_TOKEN_SECRET);
     req.user = decoded;
-
     next();
   } catch (error) {
-    return res.status(401).json({ message: "Unauthorized" });
+    return sendError(res, "auth/unauthorized");
   }
 }
 
@@ -27,6 +26,5 @@ async function authCheckIsArtist(req, res, next) {
 
   next();
 }
-
 
 module.exports = { protect, authCheckIsArtist };

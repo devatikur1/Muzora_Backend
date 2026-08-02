@@ -50,5 +50,4 @@ router.delete("/delete-account", protect, authController.deleteAccount);
 
 
 
-
 module.exports = router;

@@ -8,6 +8,7 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+// 🔹 Send OTP Email
 async function sendOtpEmail(to, otp) {
   await transporter.sendMail({
     from: `Muzora <${process.env.EMAIL_USER}>`,
@@ -25,4 +26,22 @@ async function sendOtpEmail(to, otp) {
   });
 }
 
-module.exports = { sendOtpEmail };
+// 🔹 Send Welcome Email
+async function sendBackupEmail(to, backupData) {
+  const jsonBuffer = Buffer.from(JSON.stringify(backupData, null, 2));
+
+  await transporter.sendMail({
+    from: `Muzora <${process.env.EMAIL_USER}>`,
+    to,
+    subject: "Your Music Data Backup",
+    text: `Hi, as requested, here is a backup of your music data before your artist account was converted to a regular user account. Please keep this file safe.`,
+    attachments: [
+      {
+        filename: `music-backup-${Date.now()}.json`,
+        content: jsonBuffer,
+      },
+    ],
+  });
+}
+
+module.exports = { sendOtpEmail, sendBackupEmail };

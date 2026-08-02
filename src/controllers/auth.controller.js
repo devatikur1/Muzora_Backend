@@ -1,8 +1,14 @@
+const { mongoose } = require("mongoose");
 const userModel = require("../models/user.model.js");
-const { cleanObject } = require("../utils/cleanData.js");
-const { sendOtpFn, finalizeOtpVerification } = require("../utils/otp.js");
-const jwt = require("jsonwebtoken");
+const musicModel = require("../models/music.model.js");
+const albumModel = require("../models/album.model.js");
 const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { cleanObject } = require("../utils/cleanData.js");
+const { sendOtp, finalizeOtpVerification } = require("../utils/otp.js");
+const { sendSuccess } = require("../utils/sendSuccess.js");
+const { sendError } = require("../utils/sendError.js");
+const { sendBackupEmail } = require("../services/email.service.js");
 
 //🔹 Register User Fn
 async function register(req, res) {
@@ -10,25 +16,20 @@ async function register(req, res) {
     const { username, fullName, email, password, role = "user" } = req.body;
 
     if (!username || !fullName || !email || !password) {
-      return res
-        .status(400)
-        .json({
-          message:"Please fill in all fields"
-        });
+      return sendError(res, "auth/missing-fields");
     }
 
-    if (password.length < 6) {
-      return res
-        .status(400)
-        .json({ message: "Password must be at least 6 characters" });
-    }
+    if (password.length < 6) return sendError(res, "auth/weak-password");
+
     const isUserAlreadyExists = await userModel.findOne({
       $or: [{ username }, { email }],
     });
 
     if (isUserAlreadyExists) {
-      const field = isUserAlreadyExists.email === email ? "Email" : "Username";
-      return res.status(409).json({ message: `${field} already in use` });
+      if (isUserAlreadyExists.email === email) {
+        return sendError(res, "auth/email-already-exists");
+      }
+      return sendError(res, "auth/username-already-exists");
     }
 
     const hash = await bcrypt.hash(password, 10);
@@ -42,15 +43,18 @@ async function register(req, res) {
       password: hash,
       role,
     });
-    console.log("User created:", user);
-    await sendOtpFn(cleanObject(user, ["password"]), "register", res);
 
-    return res.status(201).json({
-      message: "Registration successfully, OTP sent to email",
-    });
+    const otpSent = await sendOtp(
+      cleanObject(user, ["password"]),
+      "register",
+      res,
+    );
+    if (!otpSent) return;
+
+    return sendSuccess(res, 201, "Registration successful. OTP sent to email.");
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "Something went wrong" });
+    return sendError(res, "auth/server-error");
   }
 }
 
@@ -59,26 +63,31 @@ async function login(req, res) {
   try {
     const { username, email, password } = req.body;
 
-    const user = await userModel.findOne({
-      $or: [{ username }, { email }],
-    });
+    const user = await userModel
+      .findOne({ $or: [{ username }, { email }] })
+      .select("+password");
 
     if (!user) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return sendError(res, "auth/invalid-credentials");
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
 
     if (!isPasswordValid) {
-      return res.status(401).json({ message: "Invalid credentials" });
+      return sendError(res, "auth/invalid-credentials");
     }
 
-    await sendOtpFn(cleanObject(user), "login", res);
-    return res.status(200).json({
-      message: "OTP sent successfully, please verify to complete login",
-    });
+    const otpSent = await sendOtp(cleanObject(user), "login", res);
+    if (!otpSent) return;
+
+    return sendSuccess(
+      res,
+      200,
+      "OTP sent successfully. Please verify to complete login.",
+    );
   } catch (error) {
-    res.status(500).json({ message: "Something went wrong" });
+    console.log(error);
+    return sendError(res, "auth/server-error");
   }
 }
 
@@ -88,20 +97,19 @@ async function logout(req, res) {
     const token = req.cookies.refreshToken;
 
     if (token) {
-      const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+      const decoded = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
       await userModel.findByIdAndUpdate(decoded.id, { refreshToken: null });
     }
 
     res.clearCookie("accessToken");
     res.clearCookie("refreshToken");
 
-    res.status(200).json({ message: "User logged out successfully" });
+    return sendSuccess(res, 200, "User logged out successfully");
   } catch (error) {
+    console.log(error);
     res.clearCookie("accessToken");
     res.clearCookie("refreshToken");
-    res
-      .status(200)
-      .json({ message: "Something went wrong", error: error.message });
+    return sendError(res, "auth/server-error");
   }
 }
 
@@ -109,32 +117,41 @@ async function logout(req, res) {
 async function refreshToken(req, res) {
   try {
     const token = req.cookies.refreshToken;
-    const decoded = jwt.verify(token, process.env.JWT_REFRESH_SECRET);
+
+    if (!token) {
+      return sendError(res, "auth/refresh-token-missing");
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.REFRESH_TOKEN_SECRET);
+    } catch (verifyError) {
+      return sendError(res, "auth/session-expired");
+    }
 
     const user = await userModel.findById(decoded.id).select("role");
 
     if (!user) {
-      return res.status(401).json({ message: "User not found" });
+      return sendError(res, "auth/user-not-found");
     }
 
     const newAccessToken = jwt.sign(
       { id: user._id, role: user.role },
-      process.env.JWT_ACCESS_SECRET,
-      { expiresIn: "15m" },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN },
     );
 
     res.cookie("accessToken", newAccessToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: 15 * 60 * 1000,
+      maxAge: parseInt(process.env.ACCESS_TOKEN_EXPIRES_IN, 10) * 60 * 1000,
     });
 
-    res.status(200).json({ message: "Token refreshed successfully" });
+    return sendSuccess(res, 200, "Token refreshed successfully");
   } catch (error) {
-    return res
-      .status(401)
-      .json({ message: "Invalid or expired refresh token" });
+    console.log(error);
+    return sendError(res, "auth/server-error");
   }
 }
 
@@ -144,15 +161,180 @@ async function getMe(req, res) {
     const user = await userModel.findById(req.user.id);
 
     if (!user) {
-      return res.status(401).json({ message: "User not found" });
+      return sendError(res, "auth/user-not-found");
     }
 
-    res.status(200).json({
-      message: "User fetched successfully",
+    return sendSuccess(res, 200, "User fetched successfully", {
       user: cleanObject(user),
     });
   } catch (error) {
-    res.status(500).json({ message: "Something went wrong" });
+    console.log(error);
+    return sendError(res, "auth/server-error");
+  }
+}
+
+//🔹 Edit user profile
+async function editProfile(req, res) {
+  try {
+    const { username, fullName, avatar } = req.body;
+    if (!username && !fullName && !avatar) {
+      return sendError(res, "auth/missing-fields");
+    }
+
+    const user = await userModel.findById(req.user.id);
+    if (!user) {
+      return sendError(res, "auth/user-not-found");
+    }
+
+    if (username) user.username = username;
+    if (fullName) user.fullName = fullName;
+    if (avatar) user.avatar = avatar;
+
+    await user.save();
+    return sendSuccess(res, 200, "Profile updated successfully", {
+      user: cleanObject(user),
+    });
+  } catch (error) {
+    console.log(error);
+    return sendError(res, "auth/server-error");
+  }
+}
+
+//🔹 Change Role
+async function changeRole(req, res) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    const user = await userModel.findById(req.user.id).session(session);
+    if (!user) {
+      await session.abortTransaction();
+      return sendError(res, "auth/user-not-found");
+    }
+
+    // User → Artist
+    if (user.role === "user") {
+      user.role = "artist";
+      await user.save({ session });
+      await session.commitTransaction();
+
+      const accessToken = jwt.sign(
+        { id: user._id, role: user.role },
+        process.env.ACCESS_TOKEN_SECRET,
+        { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN },
+      );
+
+      res.cookie("accessToken", accessToken, {
+        httpOnly: true,
+        secure: process.env.NODE_ENV === "production",
+        sameSite: "strict",
+        maxAge: parseInt(process.env.ACCESS_TOKEN_EXPIRES_IN, 10) * 60 * 1000,
+      });
+
+      return sendSuccess(
+        res,
+        200,
+        "Role changed to artist successfully",
+        cleanObject(user, ["password"]),
+      );
+    }
+
+    if (user.role !== "artist") {
+      await session.abortTransaction();
+      return sendError(res, "auth/invalid-role-change");
+    }
+
+    // Artist → User (backup + delete)
+    const musicData = await musicModel
+      .find({ artist: user._id })
+      .session(session);
+
+    const backup = {
+      exportedAt: new Date().toISOString(),
+      artistInfo: {
+        username: user.username,
+        fullName: user.fullName,
+        email: user.email,
+      },
+      totalTracks: musicData.length,
+      tracks: musicData.map((track) => ({
+        title: track.title,
+        audioUrl: track.audioUrl,
+        coverImage: track.coverImage,
+        duration: track.duration,
+        createdAt: track.createdAt,
+      })),
+    };
+
+    await sendBackupEmail(user.email, backup);
+    await musicModel.deleteMany({ artist: user._id }).session(session);
+
+    user.role = "user";
+    await user.save({ session });
+
+    await session.commitTransaction();
+
+    const accessToken = jwt.sign(
+      { id: user._id, role: user.role },
+      process.env.ACCESS_TOKEN_SECRET,
+      { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN },
+    );
+
+    res.cookie("accessToken", accessToken, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === "production",
+      sameSite: "strict",
+      maxAge: parseInt(process.env.ACCESS_TOKEN_EXPIRES_IN, 10) * 60 * 1000,
+    });
+
+    return sendSuccess(
+      res,
+      200,
+      "Your account is now a regular user account. A backup of your music data has been sent to your email.",
+      cleanObject(user, ["password"]) ,
+    );
+  } catch (error) {
+    await session.abortTransaction();
+    console.log(error);
+    return sendError(res, "auth/server-error");
+  } finally {
+    session.endSession();
+  }
+}
+
+//🔹 Change Email
+async function changeEmail(req, res) {
+  try {
+    const { newEmail } = req.body;
+    if (!newEmail) {
+      return sendError(res, "auth/missing-fields");
+    }
+
+    const user = await userModel.findById(req.user.id);
+    if (!user) {
+      return sendError(res, "auth/user-not-found");
+    }
+
+    const isEmailTaken = await userModel.findOne({ email: newEmail });
+    if (isEmailTaken) {
+      return sendError(res, "auth/email-already-exists");
+    }
+
+    const otpSent = await sendOtp(
+      { email: user.email, newEmail },
+      "update-email",
+      res,
+    );
+    if (!otpSent) return;
+
+    return sendSuccess(
+      res,
+      200,
+      "Email change OTP sent successfully. Please verify to complete the change.",
+    );
+  } catch (error) {
+    console.log(error);
+    return sendError(res, "auth/server-error");
   }
 }
 
@@ -162,37 +344,110 @@ async function changePassword(req, res) {
     const { oldPass, newPass } = req.body;
 
     if (!oldPass || !newPass) {
-      return res
-        .status(400)
-        .json({ message: "Old and new password are required" });
+      return sendError(res, "auth/missing-fields");
     }
 
     const user = await userModel.findById(req.user.id).select("+password");
     if (!user) {
-      return res.status(404).json({ message: "User not found" });
+      return sendError(res, "auth/user-not-found");
     }
 
     const isOldPassValid = await bcrypt.compare(oldPass, user.password);
     if (!isOldPassValid) {
-      return res.status(401).json({ message: "Old password is incorrect" });
+      return sendError(res, "auth/incorrect-old-password");
     }
 
     const isSameAsOld = await bcrypt.compare(newPass, user.password);
     if (isSameAsOld) {
-      return res
-        .status(400)
-        .json({ message: "New password must be different from old password" });
+      return sendError(res, "auth/password-same");
     }
 
     const newHash = await bcrypt.hash(newPass, 10);
 
-    user.password = newHash;
-    await user.save();
+    const otpSent = await sendOtp(
+      { email: user.email, newPassword: newHash },
+      "update-password",
+      res,
+    );
 
-    res.status(200).json({ message: "Password changed successfully" });
+    if (!otpSent) return;
+
+    return sendSuccess(
+      res,
+      200,
+      "Password change OTP sent successfully. Please verify to complete the change.",
+    );
   } catch (error) {
     console.log(error);
-    res.status(500).json({ message: "Something went wrong" });
+    return sendError(res, "auth/server-error");
+  }
+}
+
+//🔹 Forgot password
+async function forgotPassword(req, res) {
+  try {
+    res.clearCookie("resetToken");
+    const { email } = req.body;
+
+    if (!email) {
+      return sendError(res, "auth/missing-fields");
+    }
+
+    const user = await userModel.findOne({ email });
+    if (!user) {
+      return sendError(res, "auth/user-not-found");
+    }
+
+    const otpSent = await sendOtp({ email }, "reset-password", res);
+    if (!otpSent) return;
+
+    return sendSuccess(
+      res,
+      200,
+      "Password reset OTP sent successfully. Please verify to complete the reset.",
+    );
+  } catch (error) {
+    console.log(error);
+    return sendError(res, "auth/server-error");
+  }
+}
+
+// 🔹 Reset password Fn
+async function resetPassword(req, res) {
+  try {
+    const { newPassword } = req.body;
+    const token = req.cookies.resetToken;
+
+    if (!newPassword || !token) {
+      return sendError(res, "auth/missing-fields");
+    }
+
+    if (newPassword.length < 6) {
+      return sendError(res, "auth/weak-password");
+    }
+
+    let decoded;
+    try {
+      decoded = jwt.verify(token, process.env.RESET_TOKEN_SECRET);
+    } catch (error) {
+      return sendError(res, "auth/session-expired");
+    }
+
+    const hash = await bcrypt.hash(newPassword, 10);
+
+    const user = await userModel.findById(decoded.id).select("+password");
+    if (!user) {
+      return sendError(res, "auth/user-not-found");
+    }
+
+    user.password = hash;
+    await user.save();
+
+    res.clearCookie("resetToken");
+    return sendSuccess(res, 200, "Password reset successfully");
+  } catch (error) {
+    console.log(error);
+    return sendError(res, "auth/server-error");
   }
 }
 
@@ -203,24 +458,42 @@ async function verifyOtp(req, res) {
     const otpToken = req.cookies.otpToken;
 
     if (!userSentOtp || !otpToken) {
-      return res.status(400).json({ message: "OTP and token are required" });
+      return sendError(res, "auth/missing-fields");
     }
 
-    const decoded = jwt.verify(otpToken, process.env.OTP_TOKEN_SECRET);
-    if (!decoded) {
-      return res.status(400).json({ message: "Invalid or expired OTP token" });
+    let decoded;
+    try {
+      decoded = jwt.verify(otpToken, process.env.OTP_TOKEN_SECRET);
+    } catch (error) {
+      if (error.name === "TokenExpiredError") {
+        return sendError(res, "auth/otp-expired");
+      }
+      return sendError(res, "auth/invalid-otp");
     }
 
     if (decoded.otp !== userSentOtp) {
-      return res.status(400).json({ message: "Invalid OTP" });
+      return sendError(res, "auth/invalid-otp");
     }
-    await finalizeOtpVerification(decoded.data, decoded.purpose, res);
+
+    const finalizedData = await finalizeOtpVerification(
+      decoded.data,
+      decoded.purpose,
+      res,
+    );
+    if (!finalizedData) {
+      return;
+    }
 
     res.clearCookie("otpToken");
-    res.status(200).json({ message: "OTP verified successfully" });
+    return sendSuccess(
+      res,
+      200,
+      "OTP verified successfully",
+      cleanObject(finalizedData === true ? null : finalizedData, ["password"]),
+    );
   } catch (error) {
     console.log(error);
-    return res.status(500).json({ message: "Something went wrong" });
+    return sendError(res, "auth/server-error");
   }
 }
 
@@ -230,28 +503,50 @@ async function resendOtp(req, res) {
     const otpToken = req.cookies.otpToken;
 
     if (!otpToken) {
-      return res.status(400).json({ message: "OTP token is required" });
+      return sendError(res, "auth/otp-token-required");
     }
 
-    const decoded = jwt.verify(otpToken, process.env.OTP_TOKEN_SECRET, {
-      ignoreExpiration: true,
-    });
+    let decoded;
+    try {
+      decoded = jwt.verify(otpToken, process.env.OTP_TOKEN_SECRET, {
+        ignoreExpiration: true,
+      });
+    } catch (error) {
+      return sendError(res, "auth/invalid-otp");
+    }
 
-    await sendOtpFn(
+    const otpSent = await sendOtp(
       cleanObject(decoded.data, ["password"]),
       decoded.purpose,
       res,
     );
+    if (!otpSent) return;
 
-    return res.status(200).json({
-      status: 200,
-      message: "OTP sent successfully",
-    });
+    return sendSuccess(res, 200, "OTP sent successfully");
   } catch (error) {
     console.log(error);
-    return res.status(500).json({
-      message: "Otp sending failed, please try again",
-    });
+    return sendError(res, "auth/server-error");
+  }
+}
+
+// 🔹 Delete Account Fn
+async function deleteAccount(req, res) {
+  const session = await mongoose.startSession();
+  session.startTransaction();
+
+  try {
+    await userModel.findByIdAndDelete(req.user.id).session(session);
+    await musicModel.deleteMany({ artist: req.user.id }).session(session);
+    await albumModel.deleteMany({ artist: req.user.id }).session(session);
+
+    await session.commitTransaction();
+    return sendSuccess(res, 200, "Account deleted successfully");
+  } catch (error) {
+    console.log(error);
+    await session.abortTransaction();
+    return sendError(res, "auth/server-error");
+  } finally {
+    session.endSession();
   }
 }
 
@@ -261,7 +556,13 @@ module.exports = {
   logout,
   refreshToken,
   getMe,
+  editProfile,
+  changeRole,
+  changeEmail,
   changePassword,
+  forgotPassword,
+  resetPassword,
   verifyOtp,
   resendOtp,
+  deleteAccount,
 };

@@ -2,16 +2,16 @@ const userModel = require("../models/user.model");
 const { sendOtpEmail } = require("../services/email.service");
 const generateOtp = require("./generateOtp");
 const jwt = require("jsonwebtoken");
+const { sendError } = require("./sendError.js");
 
 //🔹 Send OTP Fn
-async function sendOtpFn(data, purpose, res) {
+async function sendOtp(data, purpose, res) {
   try {
-    if (!data.email || !purpose) {
-      return res.status(400).json({
-        status: 400,
-        message: "User Data and purpose are required",
-      });
+    if (!data || !data.email || !purpose) {
+      sendError(res, "auth/missing-fields");
+      return false;
     }
+
     const otp = generateOtp();
     res.clearCookie("otpToken");
 
@@ -20,49 +20,51 @@ async function sendOtpFn(data, purpose, res) {
       process.env.OTP_TOKEN_SECRET,
       { expiresIn: process.env.OTP_EXPIRES_IN },
     );
+
     res.cookie("otpToken", otpToken, {
       httpOnly: true,
       secure: process.env.NODE_ENV === "production",
       sameSite: "strict",
-      maxAge: parseInt(process.env.OTP_EXPIRES_IN) * 60 * 1000,
+      maxAge: parseInt(process.env.OTP_EXPIRES_IN, 10) * 60 * 1000,
     });
-    
+
     await sendOtpEmail(data.email, otp);
+    return true;
   } catch (error) {
     console.log(error);
-    return res.status(500).json({
-      message: "Otp sending failed, pls try again",
-    });
+    sendError(res, "auth/server-error");
+    return false;
   }
 }
 
-// 🔹 Verify OTP Fn
+// 🔹 Finalize OTP Verification
 async function finalizeOtpVerification(data, purpose, res) {
   try {
-    if (!data.email || !purpose)
-      return res.status(400).json({
-        status: 400,
-        message: "Email and purpose are required",
-      });
+    if (!data || !data.email || !purpose) {
+      sendError(res, "auth/missing-fields");
+      return false;
+    }
 
     const user = await userModel
       .findOne({ email: data.email })
       .select("+password");
+
     if (!user) {
-      return { status: 404, message: "User not found" };
+      sendError(res, "auth/user-not-found");
+      return false;
     }
 
     switch (purpose) {
       case "register":
       case "login":
         const accessToken = jwt.sign(
-          { userId: user._id },
+          { id: user._id, role: user.role },
           process.env.ACCESS_TOKEN_SECRET,
           { expiresIn: process.env.ACCESS_TOKEN_EXPIRES_IN },
         );
 
         const refreshToken = jwt.sign(
-          { userId: user._id },
+          { id: user._id },
           process.env.REFRESH_TOKEN_SECRET,
           { expiresIn: process.env.REFRESH_TOKEN_EXPIRES_IN },
         );
@@ -71,39 +73,53 @@ async function finalizeOtpVerification(data, purpose, res) {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "strict",
-          maxAge: parseInt(process.env.ACCESS_TOKEN_EXPIRES_IN) * 60 * 1000,
+          maxAge: parseInt(process.env.ACCESS_TOKEN_EXPIRES_IN, 10) * 60 * 1000,
         });
 
         res.cookie("refreshToken", refreshToken, {
           httpOnly: true,
           secure: process.env.NODE_ENV === "production",
           sameSite: "strict",
-          maxAge: parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN) * 60 * 1000,
+          maxAge:
+            parseInt(process.env.REFRESH_TOKEN_EXPIRES_IN, 10) * 60 * 1000,
         });
 
         user.isVerified = true;
         user.refreshToken = refreshToken;
         await user.save();
-        break;
+        return user;
       case "reset-password":
-        break;
-      case "2fa":
-        break;
+        const resetToken = jwt.sign(
+          { id: user._id },
+          process.env.RESET_TOKEN_SECRET,
+          { expiresIn: process.env.RESET_TOKEN_EXPIRES_IN },
+        );
+
+        res.cookie("resetToken", resetToken, {
+          httpOnly: true,
+          secure: process.env.NODE_ENV === "production",
+          sameSite: "strict",
+          maxAge: parseInt(process.env.RESET_TOKEN_EXPIRES_IN, 10) * 60 * 1000,
+        });
+        return true;
       case "update-email":
+        user.email = data.newEmail;
+        await user.save();
+        return user;
         break;
       case "update-password":
         user.password = data.newPassword;
         await user.save();
-        break;
+        return user;
       default:
-        return res.status(400).json({ message: "Invalid OTP purpose" });
+        sendError(res, "auth/invalid-otp-purpose");
+        return false;
     }
   } catch (error) {
     console.log(error);
-    res.status(500).json({
-      message: "Otp verification failed, pls try again",
-    });
+    sendError(res, "auth/server-error");
+    return false;
   }
 }
 
-module.exports = { sendOtpFn, finalizeOtpVerification };
+module.exports = { sendOtp, finalizeOtpVerification };
